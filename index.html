@@ -813,19 +813,37 @@ async function doLogin() {
   }
 
   const isAdmin = (email === ADMIN_EMAIL);
-  const perfil  = isAdmin ? 'admin' : 'tecnico';
 
-  // Find existing user by email or create new one
+  // Admin always allowed in
+  if (!isAdmin) {
+    // Check if email is in authorized list
+    await syncUsersFromSB(); // sync latest users from Supabase
+    const authorized = USERS.find(u => u.email && u.email.toLowerCase() === email);
+    if (!authorized) {
+      errEl.textContent = '❌ Acesso negado. Seu e-mail não está cadastrado no sistema.';
+      errEl.style.display = 'block';
+      setTimeout(()=>errEl.style.display='none', 4000);
+      return;
+    }
+    // Use the authorized user data
+    authorized.nome = nome;
+    saveUsers();
+    errEl.style.display = 'none';
+    CURRENT_USER = authorized;
+    localStorage.setItem('manu_session', JSON.stringify({id: authorized.id, ts: Date.now()}));
+    enterSystem();
+    return;
+  }
+
+  // Admin login
   let found = USERS.find(u => u.email && u.email.toLowerCase() === email);
   if (!found) {
-    found = { id: Date.now(), nome: nome, email: email, perfil: perfil };
+    found = { id: Date.now(), nome: nome, email: email, perfil: 'admin' };
     USERS.push(found);
     saveUsers();
   } else {
-    // Update name if changed
     found.nome = nome;
-    // Always enforce admin for admin email
-    if (isAdmin) found.perfil = 'admin';
+    found.perfil = 'admin';
     saveUsers();
   }
 
@@ -930,7 +948,7 @@ function renderUserList() {
         <div class="user-row-av" style="background:${ROLE_COLOR[u.perfil]||'var(--pr)'}">${initials}</div>
         <div>
           <div style="font-size:13px;font-weight:600">${u.nome} ${isMe?'<span class="bg b-bl" style="font-size:10px">Você</span>':''}</div>
-          <div style="font-size:11.5px;color:var(--mu)">@${u.usuario} · ${ROLE_ICON[u.perfil]} ${ROLE_LABEL[u.perfil]}</div>
+          <div style="font-size:11.5px;color:var(--mu)">${u.email||''} · ${ROLE_ICON[u.perfil]} ${ROLE_LABEL[u.perfil]}</div>
         </div>
       </div>
       <div style="display:flex;gap:7px">
@@ -942,13 +960,7 @@ function renderUserList() {
 
 // Show login quick-access chips
 function renderLoginChips() {
-  const chips = document.getElementById('login-chips');
-  if(!chips) return;
-  chips.innerHTML = USERS.slice(0,6).map(u =>
-    `<span class="user-chip" onclick="document.getElementById('login-user').value='${u.usuario}';document.getElementById('login-pass').focus()">
-      <span class="role-dot ${u.perfil}"></span>${u.nome.split(' ')[0]}
-    </span>`
-  ).join('');
+  // Not used in email-based login
 }
 
 
