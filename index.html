@@ -669,10 +669,9 @@ notify pgrst, 'reload schema';</pre>
     <div class="mb">
       <div class="fr2">
         <div class="fg"><label class="fl rq">Nome completo</label><input class="fi" id="nu-nm" placeholder="Ex: João Silva"></div>
-        <div class="fg"><label class="fl rq">Usuário (login)</label><input class="fi" id="nu-us" placeholder="Ex: joao.silva"></div>
+        <div class="fg"><label class="fl rq">E-mail</label><input class="fi" type="email" id="nu-us" placeholder="Ex: joao@coppead.ufrj.br"></div>
       </div>
       <div class="fr2">
-        <div class="fg"><label class="fl rq">Senha</label><input class="fi" type="password" id="nu-pw" placeholder="Mínimo 4 caracteres"></div>
         <div class="fg"><label class="fl rq">Perfil</label>
           <select class="fi" id="nu-rl">
             <option value="tecnico">🔧 Técnico</option>
@@ -774,13 +773,12 @@ async function syncUsersFromSB() {
   try {
     const remote = await sbReq('usuarios','GET',null,'?order=id.asc');
     if(remote && remote.length) {
-      // Merge: keep local admin if supabase empty, otherwise use supabase
-      USERS = remote.map(u=>({id:u.id,nome:u.nome,usuario:u.usuario,senha:u.senha,perfil:u.perfil}));
-      saveUsers(); renderLoginChips();
+      USERS = remote.map(u=>({id:u.id, nome:u.nome, email:u.email, perfil:u.perfil}));
+      saveUsers();
     } else {
       // Push local users to Supabase
       for(const u of USERS) {
-        await sbReq('usuarios','POST',{nome:u.nome,usuario:u.usuario,senha:u.senha,perfil:u.perfil});
+        await sbReq('usuarios','POST',{nome:u.nome, email:u.email||'', perfil:u.perfil});
       }
     }
   } catch(e) { console.error('Sync users error:', e); }
@@ -788,14 +786,13 @@ async function syncUsersFromSB() {
 
 async function pushUserToSB(u) {
   if(!useSB()) return;
-  await sbReq('usuarios','POST',{nome:u.nome,usuario:u.usuario,senha:u.senha,perfil:u.perfil});
+  await sbReq('usuarios','POST',{nome:u.nome, email:u.email||'', perfil:u.perfil});
 }
 
 async function deleteUserFromSB(id) {
   if(!useSB()) return;
-  // find by matching id in remote — use local usuario as key
   const u = USERS.find(x=>x.id===id);
-  if(u) await sbReq('usuarios','DELETE',null,`?usuario=eq.${u.usuario}`);
+  if(u) await sbReq('usuarios','DELETE',null,`?id=eq.${u.id}`);
 }
 
 // Cores por perfil
@@ -901,18 +898,16 @@ function checkSession() {
 // User management
 function saveUser() {
   const nm = document.getElementById('nu-nm').value.trim();
-  const us = document.getElementById('nu-us').value.trim().toLowerCase();
-  const pw = document.getElementById('nu-pw').value;
+  const em = document.getElementById('nu-us').value.trim().toLowerCase();
   const rl = document.getElementById('nu-rl').value;
-  if(!nm||!us||!pw) { toast('⚠️','Preencha todos os campos','warning'); return; }
-  if(pw.length < 4) { toast('⚠️','Senha mínima: 4 caracteres','warning'); return; }
-  if(USERS.find(u=>u.usuario.toLowerCase()===us)) { toast('⚠️','Usuário já existe','warning'); return; }
-  const newUser = { id:nuId(), nome:nm, usuario:us, senha:pw, perfil:rl };
+  if(!nm||!em||em.indexOf('@')===-1) { toast('⚠️','Preencha nome e e-mail válido','warning'); return; }
+  if(USERS.find(u=>u.email && u.email.toLowerCase()===em)) { toast('⚠️','E-mail já cadastrado','warning'); return; }
+  const newUser = { id:nuId(), nome:nm, email:em, perfil:rl };
   USERS.push(newUser);
   saveUsers();
-  pushUserToSB(newUser); // sync to Supabase
+  pushUserToSB(newUser);
   closeMo('mo-add-user');
-  ['nu-nm','nu-us','nu-pw'].forEach(i=>document.getElementById(i).value='');
+  ['nu-nm','nu-us'].forEach(i=>document.getElementById(i).value='');
   renderCfg(); toast('✅', `Usuário "${nm}" cadastrado!`, 'success');
 }
 
@@ -928,7 +923,7 @@ function renderUserList() {
   const el = document.getElementById('list-users');
   if(!el) return;
   el.innerHTML = USERS.map(u => {
-    const initials = u.nome.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    const initials = u.nome ? u.nome.split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase() : '?';
     const isMe = u.id === CURRENT_USER?.id;
     return `<div class="user-row">
       <div class="user-row-info">
