@@ -1383,9 +1383,9 @@ async function testSB(){
   const key=document.getElementById('cfg-key').value.trim();
   if(!url||!key){toast('⚠️','Preencha URL e Key','warning');return;}
   try{
-    const r=await fetch(`${url}/rest/v1/chamados?select=count`,{headers:{'apikey':key,'Authorization':`Bearer ${key}`}});
+    const r=await fetch(`${url}/rest/v1/chamados?select=id&limit=1`,{headers:{'apikey':key,'Authorization':`Bearer ${key}`,'Accept':'application/json'}});
     if(r.ok){toast('✅','Conexão com Supabase OK!','success');document.getElementById('cfg-sb-status').innerHTML=`<div class="notice n-gr"><span>✅</span><span>Conexão testada com sucesso!</span></div>`;}
-    else throw new Error(r.status);
+    else { const err=await r.json().catch(()=>({})); throw new Error(err.message||r.status); }
   }catch(e){toast('❌','Falha na conexão: '+e.message,'error');document.getElementById('cfg-sb-status').innerHTML=`<div class="notice n-rd"><span>❌</span><span>Falha: ${e.message}</span></div>`;}
 }
 
