@@ -1453,16 +1453,16 @@ async function syncForms(){
     // Save Forms data to Supabase so it persists on refresh
     if(useSB()) {
       try {
-        // Get existing forms chamados from Supabase
-        const existing = await sbReq('chamados','GET',null,'?src=eq.forms&select=id');
-        const existingIds = new Set((existing||[]).map(x=>x.id));
-        // Only insert new ones (not already in Supabase)
-        const toInsert = mapped.filter(c => !existingIds.has(c.id));
+        // Get all existing forms chamados from Supabase
+        const existing = await sbReq('chamados','GET',null,'?src=eq.forms&select=id,nome,data,tipo');
+        // Create a unique key per chamado to detect duplicates
+        const existingKeys = new Set((existing||[]).map(x=>`${x.nome}|${x.data}|${x.tipo}`));
+        // Only insert truly new ones
+        const toInsert = mapped.filter(c => !existingKeys.has(`${c.nome}|${c.data}|${c.tipo}`));
         for(const c of toInsert) {
-          const {_src, ...row} = c;
+          const {_src, id, ...row} = c; // remove local id, let Supabase generate
           await sbReq('chamados','POST', row);
         }
-        // Also update status of existing ones from Supabase (don't overwrite manual changes)
       } catch(sbErr) { console.warn('Forms→Supabase sync error:', sbErr); }
     }
 
