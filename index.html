@@ -728,7 +728,15 @@ async function sbLoadAll() {
       sbReq('diagnosticos','GET',null,'?order=id.desc'),
       sbReq('materiais','GET',null,'?order=id.desc'),
     ]);
-    if(Array.isArray(ch)) { DB.chamados=ch; DB.diagnosticos=Array.isArray(dg)?dg:[]; DB.mat_nec=Array.isArray(mt)?mt:[]; saveDB(); }
+    if(Array.isArray(ch)) {
+      // Preserve manually-set status from local for forms chamados
+      const localStatus = {};
+      DB.chamados.forEach(c => { if(c.status && c.status !== 'Em aberto') localStatus[c.id] = c.status; });
+      DB.chamados = ch.map(c => ({ ...c, status: localStatus[c.id] || c.status }));
+      DB.diagnosticos=Array.isArray(dg)?dg:[];
+      DB.mat_nec=Array.isArray(mt)?mt:[];
+      saveDB();
+    }
     toast('✅','Conectado ao Supabase!','success');
     return true;
   } catch(e) { toast('❌','Erro ao conectar ao Supabase','error'); return false; }
@@ -1441,6 +1449,23 @@ async function syncForms(){
     const manual=DB.chamados.filter(c=>c._src!=='forms');
     DB.chamados=[...manual,...mapped];
     saveDB();
+
+    // Save Forms data to Supabase so it persists on refresh
+    if(useSB()) {
+      try {
+        // Get existing forms chamados from Supabase
+        const existing = await sbReq('chamados','GET',null,'?src=eq.forms&select=id');
+        const existingIds = new Set((existing||[]).map(x=>x.id));
+        // Only insert new ones (not already in Supabase)
+        const toInsert = mapped.filter(c => !existingIds.has(c.id));
+        for(const c of toInsert) {
+          const {_src, ...row} = c;
+          await sbReq('chamados','POST', row);
+        }
+        // Also update status of existing ones from Supabase (don't overwrite manual changes)
+      } catch(sbErr) { console.warn('Forms→Supabase sync error:', sbErr); }
+    }
+
     setSyncUI('ok',`Sync: ${mapped.length} registros · ${new Date().toLocaleTimeString('pt-BR')}`);
     renderPg(CUR); updateBadges();
     toast('🔗',`${mapped.length} chamados sincronizados do Google Forms`,'success');
