@@ -881,7 +881,7 @@ function enterSystem() {
   syncUsersFromSB().then(()=>renderLoginChips());
   setTimeout(()=>{
     if(useSB()) sbLoadAll().then(ok=>{ if(ok) renderPg(CUR); });
-    else syncForms();
+    syncForms(); // always sync Google Forms regardless of Supabase
   }, 2000);
   toast('👋', `Bem-vindo, ${u.nome.split(' ')[0]}!`, 'success');
 }
@@ -1454,7 +1454,10 @@ function setSyncUI(s,msg){
 
 function setupSyncTimer(){
   if(SYNC_IV)clearInterval(SYNC_IV);
-  SYNC_IV=setInterval(syncForms, 5 * 60 * 1000); // 5 minutos
+  SYNC_IV=setInterval(()=>{
+    syncForms();
+    if(useSB()) sbLoadAll().then(ok=>{ if(ok) renderPg(CUR); });
+  }, 2 * 60 * 1000); // 2 minutos
 }
 
 // ═══════════════════════════════════════════════════════
