@@ -1203,26 +1203,57 @@ function renderMatsTemp(){
 
 function rmMat(i){MATS_TMP.splice(i,1);renderMatsTemp();}
 
-function saveDiag(){
+async function saveDiag(){
   if(!SEL)return;
   const problema=document.getElementById('d-prob').value.trim();
   const solucao=document.getElementById('d-sol').value.trim();
   if(!problema||!solucao){toast('⚠️','Preencha o problema e a solução','warning');return;}
-  // Remover diagnóstico anterior
+
+  const novoSt=MATS_TMP.length>0?'Aguardando material':'Em andamento';
+  const tecnico=document.getElementById('d-tec').value.trim();
+  const tempo=document.getElementById('d-tempo').value.trim();
+
+  if(useSB()){
+    try{
+      // Delete old diagnostico and materiais for this chamado in Supabase
+      await sbReq('diagnosticos','DELETE',null,`?chamado_id=eq.${SEL}`);
+      // materiais table has no chamado_id — skip delete by chamado
+
+      // Insert new diagnostico — using actual DB column names
+      const descricao = `Problema: ${problema}\nSolução: ${solucao}`;
+      await sbReq('diagnosticos','POST',{
+        chamado_id:SEL, descricao, tecnico, tempo, status:novoSt
+      });
+
+      // Insert materiais — using actual DB column names (qtd not quantidade)
+      for(const m of MATS_TMP){
+        await sbReq('materiais','POST',{nome:m.nome, qtd:m.quantidade, unidade:m.unidade, status:'Necessário'});
+      }
+
+      // Update chamado status
+      await sbReq('chamados','PATCH',{status:novoSt},`?id=eq.${SEL}`);
+
+      toast('✅','Diagnóstico salvo! Status: '+novoSt,'success');
+    } catch(e){
+      toast('❌','Erro ao salvar: '+e.message,'error');
+      return;
+    }
+  }
+
+  // Update local DB
   DB.diagnosticos=DB.diagnosticos.filter(d=>d.cid!==SEL);
   DB.mat_nec=DB.mat_nec.filter(m=>m.cid!==SEL);
-  const dg={id:nid(DB.diagnosticos),cid:SEL,problema,solucao,tempo:document.getElementById('d-tempo').value.trim(),tecnico:document.getElementById('d-tec').value.trim(),data:tod()};
+  const descricao = `Problema: ${problema}\nSolução: ${solucao}`;
+  const dg={id:nid(DB.diagnosticos),cid:SEL,chamado_id:SEL,descricao,problema,solucao,tempo,tecnico,data:tod()};
   DB.diagnosticos.push(dg);
-  MATS_TMP.forEach(m=>{ const rm={id:nid(DB.mat_nec),cid:SEL,...m}; DB.mat_nec.push(rm); sbSave('materiais',rm,true); });
-  sbSave('diagnosticos',dg,true);
-  const novoSt=MATS_TMP.length>0?'Aguardando material':'Em andamento';
+  MATS_TMP.forEach(m=>{ const rm={id:nid(DB.mat_nec),cid:SEL,...m}; DB.mat_nec.push(rm); });
   DB.chamados=DB.chamados.map(c=>c.id===SEL?{...c,status:novoSt}:c);
-  sbSave('chamados',DB.chamados.find(c=>c.id===SEL),false);
   saveDB();
+
   document.getElementById('diag-form').style.display='none';
   document.getElementById('diag-empty').style.display='block';
   renderDiag(); updateBadges();
-  toast('✅','Diagnóstico salvo! Status: '+novoSt,'success');
+  if(!useSB()) toast('✅','Diagnóstico salvo! Status: '+novoSt,'success');
 }
 
 function cancelDiag(){SEL=null;MATS_TMP=[];document.getElementById('diag-form').style.display='none';document.getElementById('diag-empty').style.display='block';}
