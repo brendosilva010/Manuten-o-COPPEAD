@@ -729,13 +729,13 @@ async function sbLoadAll() {
       sbReq('materiais','GET',null,'?order=id.desc'),
     ]);
     if(Array.isArray(ch)) {
-      // Preserve manually-set status from local for forms chamados
-      const localStatus = {};
-      DB.chamados.forEach(c => { if(c.status && c.status !== 'Em aberto') localStatus[c.id] = c.status; });
-      DB.chamados = ch.map(c => ({ ...c, status: localStatus[c.id] || c.status }));
-      DB.diagnosticos=Array.isArray(dg)?dg:[];
-      DB.mat_nec=Array.isArray(mt)?mt:[];
+      // Supabase is the source of truth for status — always use it
+      DB.chamados = ch;
+      DB.diagnosticos = Array.isArray(dg) ? dg : [];
+      DB.mat_nec = Array.isArray(mt) ? mt : [];
       saveDB();
+      renderPg(CUR);
+      updateBadges();
     }
     toast('✅','Conectado ao Supabase!','success');
     return true;
@@ -745,11 +745,12 @@ async function sbLoadAll() {
 // Salva no Supabase (insert ou update)
 async function sbSave(table, row, isNew=true) {
   if(!useSB()) return;
-  // Remove campos gerados automaticamente pelo Supabase
   const {id, _src, created_at, ...cleanRow} = row || {};
   if(isNew) {
     await sbReq(table, 'POST', cleanRow);
   } else {
+    // PATCH needs id in query string, not in body
+    if(!id) return;
     await sbReq(table, 'PATCH', cleanRow, `?id=eq.${id}`);
   }
 }
@@ -887,9 +888,11 @@ function enterSystem() {
   setupSyncTimer();
   // Sync users from Supabase so all devices share same list
   syncUsersFromSB().then(()=>renderLoginChips());
-  setTimeout(()=>{
+  setTimeout(async ()=>{
+    // 1. Sync Google Forms → saves new entries to Supabase
+    await syncForms();
+    // 2. Load everything from Supabase (includes Forms data + manual + status changes)
     if(useSB()) sbLoadAll().then(ok=>{ if(ok) renderPg(CUR); });
-    syncForms(); // always sync Google Forms regardless of Supabase
   }, 2000);
   toast('👋', `Bem-vindo, ${u.nome.split(' ')[0]}!`, 'success');
 }
@@ -1124,7 +1127,13 @@ function verSol(id){
 
 function setStatus(id,st){
   DB.chamados=DB.chamados.map(c=>c.id===id?{...c,status:st}:c);
-  sbSave('chamados',{id,...DB.chamados.find(x=>x.id===id)},false);
+  const chamado = DB.chamados.find(x=>x.id===id);
+  // Save status to Supabase immediately — this is the source of truth
+  if(useSB()) {
+    sbReq('chamados','PATCH',{status:st},`?id=eq.${id}`)
+      .then(()=>console.log('Status salvo no Supabase'))
+      .catch(e=>console.error('Erro ao salvar status:', e));
+  }
   saveDB(); closeMo('mo-det'); renderPg(CUR); toast('🔄','Status: '+st,'default');
 }
 
@@ -1454,13 +1463,13 @@ async function syncForms(){
     if(useSB()) {
       try {
         // Get all existing forms chamados from Supabase
-        const existing = await sbReq('chamados','GET',null,'?src=eq.forms&select=id,nome,data,tipo');
-        // Create a unique key per chamado to detect duplicates
+        const existing = await sbReq('chamados','GET',null,'?src=eq.forms&select=id,nome,data,tipo,status');
         const existingKeys = new Set((existing||[]).map(x=>`${x.nome}|${x.data}|${x.tipo}`));
-        // Only insert truly new ones
+        // Only insert truly new ones — status always starts as 'Em aberto'
         const toInsert = mapped.filter(c => !existingKeys.has(`${c.nome}|${c.data}|${c.tipo}`));
         for(const c of toInsert) {
-          const {_src, id, ...row} = c; // remove local id, let Supabase generate
+          const {_src, id, ...row} = c;
+          row.status = 'Em aberto'; // always start as Em aberto, never from Forms
           await sbReq('chamados','POST', row);
         }
       } catch(sbErr) { console.warn('Forms→Supabase sync error:', sbErr); }
@@ -1479,9 +1488,9 @@ function setSyncUI(s,msg){
 
 function setupSyncTimer(){
   if(SYNC_IV)clearInterval(SYNC_IV);
-  SYNC_IV=setInterval(()=>{
-    syncForms();
-    if(useSB()) sbLoadAll().then(ok=>{ if(ok) renderPg(CUR); });
+  SYNC_IV=setInterval(async ()=>{
+    await syncForms(); // first sync Forms to Supabase
+    if(useSB()) sbLoadAll().then(ok=>{ if(ok) renderPg(CUR); }); // then load all from Supabase
   }, 2 * 60 * 1000); // 2 minutos
 }
 
