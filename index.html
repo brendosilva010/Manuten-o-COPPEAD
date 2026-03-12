@@ -1087,7 +1087,7 @@ function verSol(id){
   SEL=id;
   document.getElementById('det-t').textContent=`#${String(c.id).padStart(4,'0')} · ${c.tipo}`;
   document.getElementById('det-s').textContent=`${c.setor} · ${c.andar} · ${c.sala}`;
-  const dg=DB.diagnosticos.find(d=>d.cid===id);
+  const dg=DB.diagnosticos.find(d=>(d.chamado_id||d.cid)===id);
   const ms=DB.mat_nec.filter(m=>m.cid===id);
   document.getElementById('det-b').innerHTML=`
     <div style="display:flex;gap:7px;margin-bottom:14px;flex-wrap:wrap">
@@ -1140,7 +1140,7 @@ function setStatus(id,st){
 function delSol(){
   if(!confirm('Excluir esta solicitação?'))return;
   DB.chamados=DB.chamados.filter(c=>c.id!==SEL);
-  DB.diagnosticos=DB.diagnosticos.filter(d=>d.cid!==SEL);
+  DB.diagnosticos=DB.diagnosticos.filter(d=>(d.chamado_id||d.cid)!==SEL);
   DB.mat_nec=DB.mat_nec.filter(m=>m.cid!==SEL);
   sbDel('chamados',SEL); sbDel('diagnosticos',SEL); // cascade
   saveDB(); closeMo('mo-det'); renderPg(CUR); updateBadges();
@@ -1348,11 +1348,13 @@ function renderDash(){
 
   // Diagnósticos recentes
   document.getElementById('dash-diag').innerHTML=DB.diagnosticos.slice(-4).reverse().map(d=>{
-    const c=DB.chamados.find(x=>x.id===d.cid);
-    return`<div style="padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:9px;margin-bottom:7px;cursor:pointer" onclick="verSol(${d.cid})">
-      <div style="font-size:11px;color:var(--mu2);font-family:monospace;margin-bottom:3px">#${String(d.cid).padStart(4,'0')} · ${d.data}</div>
+    const cid = d.chamado_id||d.cid;
+    const c=DB.chamados.find(x=>x.id===cid);
+    const desc = d.descricao||d.problema||d.prob||'';
+    return`<div style="padding:10px 12px;background:var(--sf2);border:1px solid var(--bd);border-radius:9px;margin-bottom:7px;cursor:pointer" onclick="verSol(${cid})">
+      <div style="font-size:11px;color:var(--mu2);font-family:monospace;margin-bottom:3px">#${String(cid).padStart(4,'0')} · ${d.data||''}</div>
       <div style="font-size:13px;font-weight:600">${c?.tipo||'—'}</div>
-      <div style="font-size:12px;color:var(--mu);margin-top:3px">${d.prob.slice(0,70)}${d.prob.length>70?'...':''}</div>
+      <div style="font-size:12px;color:var(--mu);margin-top:3px">${desc.slice(0,70)}${desc.length>70?'...':''}</div>
     </div>`;
   }).join('')||'<div class="empty"><div class="empty-ic">🔍</div><div class="empty-t">Nenhum diagnóstico</div></div>';
 }
@@ -1479,15 +1481,18 @@ async function syncForms(){
   try{
     const ft=(url,ms)=>new Promise((res,rej)=>{const t=setTimeout(()=>rej(new Error('timeout')),ms);fetch(url).then(r=>{clearTimeout(t);res(r);}).catch(e=>{clearTimeout(t);rej(e);});});
     const u=FORMS_URL();
-    const proxies=['https://corsproxy.io/?'+encodeURIComponent(u),'https://api.allorigins.win/raw?url='+encodeURIComponent(u)];
+    const proxies=['https://corsproxy.io/?'+encodeURIComponent(u),'https://api.allorigins.win/raw?url='+encodeURIComponent(u),'https://thingproxy.freeboard.io/fetch/'+u];
     let resp=null;
     for(const p of proxies){try{const r=await ft(p,9000);if(r.ok){resp=r;break;}}catch(e){}}
     if(!resp)throw new Error('Proxies indisponíveis — abra no seu navegador');
     const rows=parseCSV(await resp.text());
     if(!rows.length){setSyncUI('err','Planilha vazia ou sem dados');return;}
     const mapped=rows.map((r,i)=>mapRow(r,i));
-    const manual=DB.chamados.filter(c=>c._src!=='forms');
-    DB.chamados=[...manual,...mapped];
+    const manual=DB.chamados.filter(c=>c._src!=='forms' && c.src!=='forms');
+    // Deduplicate: keep manual + unique forms entries
+    const manualKeys = new Set(manual.map(c=>`${c.nome}|${c.data}|${c.tipo}`));
+    const uniqueForms = mapped.filter(c=>!manualKeys.has(`${c.nome}|${c.data}|${c.tipo}`));
+    DB.chamados=[...manual,...uniqueForms];
     saveDB();
 
     // Save Forms data to Supabase so it persists on refresh
