@@ -1481,10 +1481,18 @@ async function syncForms(){
   try{
     const ft=(url,ms)=>new Promise((res,rej)=>{const t=setTimeout(()=>rej(new Error('timeout')),ms);fetch(url).then(r=>{clearTimeout(t);res(r);}).catch(e=>{clearTimeout(t);rej(e);});});
     const u=FORMS_URL();
-    const proxies=['https://corsproxy.io/?'+encodeURIComponent(u),'https://api.allorigins.win/raw?url='+encodeURIComponent(u),'https://thingproxy.freeboard.io/fetch/'+u];
+    const proxies=[
+      'https://corsproxy.io/?'+encodeURIComponent(u),
+      'https://api.allorigins.win/raw?url='+encodeURIComponent(u),
+      'https://api.codetabs.com/v1/proxy?quest='+encodeURIComponent(u),
+      'https://cors.eu.org/'+u,
+      u // try direct last
+    ];
     let resp=null;
-    for(const p of proxies){try{const r=await ft(p,9000);if(r.ok){resp=r;break;}}catch(e){}}
-    if(!resp)throw new Error('Proxies indisponíveis — abra no seu navegador');
+    for(const p of proxies){
+      try{const r=await ft(p,10000);if(r.ok){resp=r;break;}}catch(e){console.warn('Proxy failed:',p,e.message);}
+    }
+    if(!resp)throw new Error('Não foi possível acessar a planilha. Verifique se ela está publicada.');
     const rows=parseCSV(await resp.text());
     if(!rows.length){setSyncUI('err','Planilha vazia ou sem dados');return;}
     const mapped=rows.map((r,i)=>mapRow(r,i));
